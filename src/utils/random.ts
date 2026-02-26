@@ -1,12 +1,12 @@
 import { GRID_COLS, GRID_ROWS, MIN_MATCH } from "../constants";
-import { TileType, TILE_TYPE_COUNT } from "../types";
+import { TileType } from "../types";
 
 /**
  * Generate an initial grid with no pre-existing matches.
  * Uses a simple constraint: when placing a tile, avoid creating a run of
  * MIN_MATCH in the row or column by excluding types that would do so.
  */
-export function generateGrid(): TileType[][] {
+export function generateGrid(colorCount: number): TileType[][] {
   const grid: TileType[][] = [];
 
   for (let r = 0; r < GRID_ROWS; r++) {
@@ -31,7 +31,7 @@ export function generateGrid(): TileType[][] {
       }
 
       const allowed: TileType[] = [];
-      for (let t = 0; t < TILE_TYPE_COUNT; t++) {
+      for (let t = 0; t < colorCount; t++) {
         if (!forbidden.has(t as TileType)) {
           allowed.push(t as TileType);
         }
@@ -44,10 +44,10 @@ export function generateGrid(): TileType[][] {
   return grid;
 }
 
-/** Pick a random tile type, optionally excluding certain types. */
-export function randomTileType(exclude?: Set<TileType>): TileType {
+/** Pick a random tile type from the active color pool, optionally excluding certain types. */
+export function randomTileType(colorCount: number, exclude?: Set<TileType>): TileType {
   const allowed: TileType[] = [];
-  for (let t = 0; t < TILE_TYPE_COUNT; t++) {
+  for (let t = 0; t < colorCount; t++) {
     if (!exclude || !exclude.has(t as TileType)) {
       allowed.push(t as TileType);
     }

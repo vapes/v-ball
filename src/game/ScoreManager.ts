@@ -1,4 +1,8 @@
 import { POINTS_PER_TILE, COMBO_MULTIPLIER } from "../constants";
+import { TILE_TYPE_COUNT } from "../types";
+
+const STARTING_COLORS = 3;
+const POINTS_PER_NEW_COLOR = 1000;
 
 export class ScoreManager {
   private _score = 0;
@@ -12,6 +16,10 @@ export class ScoreManager {
 
   get score(): number {
     return this._score;
+  }
+
+  get activeColors(): number {
+    return Math.min(TILE_TYPE_COUNT, STARTING_COLORS + Math.floor(this._score / POINTS_PER_NEW_COLOR));
   }
 
   /** Call at the start of each player-initiated swap. */

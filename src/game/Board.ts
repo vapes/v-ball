@@ -65,7 +65,7 @@ export class Board {
   }
 
   private initGrid(): void {
-    const data = generateGrid();
+    const data = generateGrid(this.score.activeColors);
     this.grid = data;
     this.tiles = [];
 
@@ -211,7 +211,7 @@ export class Board {
       let spawned = 0;
       for (let r = GRID_ROWS - 1; r >= 0; r--) {
         if (this.tiles[r][c] === null) {
-          const type = randomTileType();
+          const type = randomTileType(this.score.activeColors);
           this.grid[r][c] = type;
 
           const tile = new Tile(type, r, c);
@@ -245,7 +245,7 @@ export class Board {
     }
 
     // Re-generate
-    const data = generateGrid();
+    const data = generateGrid(this.score.activeColors);
     this.grid = data;
     this.tiles = [];
 
