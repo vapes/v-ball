@@ -2,116 +2,74 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Quick Start
-
-**v-ball** is a Match-3 puzzle game (Candy Crush style) built with PixiJS v8 and TypeScript, deployed via GitHub Pages.
-
-### Common Commands
+## Commands
 
 ```bash
-npm run dev      # Start Vite dev server (http://localhost:5173/v-ball/)
-npm run build    # TypeScript compilation + Vite production build
-npm run preview  # Preview the built dist/ locally
+npm run dev      # Vite dev server → http://localhost:5173/v-ball/
+npm run build    # tsc (type-check) + vite build → dist/
+npm run preview  # Serve dist/ locally
 ```
 
-## Project Architecture
+There are no tests and no linter configured.
 
-### Source Structure
+## Architecture
+
+**Match-3 puzzle game** (Candy Crush style) built with PixiJS v8 + TypeScript, deployed to GitHub Pages at `https://vapes.github.io/v-ball/`.
+
+### Source layout
 
 ```
 src/
-  main.ts              — Bootstrap: create PixiJS app, init game, center board
-  constants.ts         — Grid size, tile size, colors, animation durations, scoring
-  types.ts             — Interfaces (TileType, GridPosition, MatchGroup, SwapRequest)
+  main.ts           Bootstrap: init PixiJS app, scale board to fit viewport
+  constants.ts      All tunable values (grid size, tile size, durations, colors, scoring)
+  types.ts          TileType enum, GridPosition, MatchGroup, SwapRequest
   game/
-    Board.ts           — Central game controller: grid state, match/cascade orchestration
-    Tile.ts            — Single tile: PixiJS Graphics, grid position, animations
-    InputHandler.ts    — Mouse/touch: click-to-select + click-adjacent or drag-to-swap
-    Animator.ts        — Tween system using PixiJS Ticker (ease-out quad)
-    ScoreManager.ts    — Score tracking with combo multiplier
+    Board.ts        Central controller — owns both data grid and tile grid, orchestrates all phases
+    Tile.ts         One tile: PixiJS Container + Graphics, handles its own animations
+    InputHandler.ts Pointer events → SwapRequest (click-select or drag)
+    Animator.ts     Promise-based tweens on PixiJS Ticker (ease-out quad)
+    ScoreManager.ts Score + combo multiplier, writes to #score DOM element
   utils/
-    matching.ts        — Pure functions: findMatches, hasValidMoves
-    random.ts          — Tile generation ensuring no initial matches
+    matching.ts     Pure functions: findMatches, hasValidMoves (no side effects)
+    random.ts       generateGrid (no initial matches), randomTileType
 ```
 
-### Core Systems
+### Two parallel data structures
 
-1. **Board** (`src/game/Board.ts`)
-   - Holds 2D array of Tile references + parallel grid of TileType values
-   - Orchestrates game flow: swap → validate → destroy → cascade → refill → chain check
-   - Prevents input during animations via `busy` flag
-   - Uses async/await for sequential animation phases
-   - Reshuffles board when no valid moves remain
+`Board` maintains two mirrored 8×8 arrays that must always be in sync:
+- `grid: (TileType | null)[][]` — the logical game state used by pure matching functions
+- `tiles: (Tile | null)[][]` — the visual/PixiJS objects
 
-2. **Tile** (`src/game/Tile.ts`)
-   - Wraps a PixiJS Container with Graphics drawn inside
-   - Each TileType (Red/Blue/Green/Yellow/Purple/Orange) has a distinct color + shape icon
-   - Methods: `animateSwap()`, `animateFall()`, `animateDestroy()`, `animateSpawn()`
-   - Static helpers `pixelX()`/`pixelY()` convert grid coords to pixel positions
+Any operation that moves or removes a tile must update **both** arrays.
 
-3. **InputHandler** (`src/game/InputHandler.ts`)
-   - Listens to pointerdown/pointerup on the board container
-   - Supports click-to-select then click-adjacent, or drag-to-swap
-   - Shows a white highlight rectangle on the selected tile
-   - Emits SwapRequests to Board callback
+### Game flow (async, sequential)
 
-4. **Animator** (`src/game/Animator.ts`)
-   - Lightweight tween manager running on PixiJS Ticker
-   - `animate(target, to, duration)` returns a Promise
-   - Uses ease-out quadratic interpolation
+`Board.onSwapRequest` is the main state machine. It sequences animation phases with `await`:
 
-5. **ScoreManager** (`src/game/ScoreManager.ts`)
-   - Tracks score and combo chain multiplier
-   - Updates the `#score` DOM element
+1. Animate swap → update both arrays → `findMatches`
+2. No match → animate swap back (early return)
+3. Match → `score.addMatch` → `animateDestroy` on matched tiles → remove from both arrays
+4. `cascade()` — shift tiles down in both arrays, animate falls
+5. `fillEmpty()` — spawn new tiles from above the board
+6. `findMatches` again → if matches, recurse (combo chains)
+7. `hasValidMoves` → if false, reshuffle entire board
 
-### Game Flow
+`busy = true` blocks new input during all of the above.
 
-1. **Init**: Generate 8×8 grid with no pre-existing matches
-2. **Input**: Player selects tile A, then adjacent tile B (or drags)
-3. **Swap**: Animate A↔B swap
-4. **Validate**: Check if swap creates any match
-   - No match → animate swap back (invalid move)
-   - Match found → proceed
-5. **Destroy**: Scale-down animation on matched tiles, then remove
-6. **Cascade**: Tiles above fall down to fill gaps, new tiles spawn from top
-7. **Chain check**: After cascade, check for new matches → repeat from step 5
-8. **Score**: Award points per match, combo multiplier for chains
-9. **Ready**: Re-enable input
+### Responsive / mobile
 
-### Matching Logic (`src/utils/matching.ts`)
+`main.ts` computes `scale = min(availW / BOARD_WIDTH, availH / BOARD_HEIGHT, 1)` on every resize and applies it to `board.container.scale`. The board's internal pixel dimensions (580×580 at 1×) never change — only the container scale changes. Portrait lock is attempted via `screen.orientation.lock("portrait")`; a CSS overlay covers landscape on small screens.
 
-- `findMatches(grid)`: Scans rows and columns for runs of 3+ consecutive same-type tiles
-- `hasValidMoves(grid)`: Tries every adjacent swap to check if any produces a match
+### PixiJS v8 API notes
 
-### Configuration
+- Graphics uses method chaining: `.roundRect(...).fill({color})` / `.stroke({width, color})`
+- `Container.position` is a `Point`, not a plain object — cast to `Record<string, number>` when passing to `Animator.animate()`
+- `eventMode = "static"` must be set on containers that need pointer events
 
-All tunable values are in `src/constants.ts`:
-- Grid dimensions (8×8), tile size (64px), gap (4px)
-- Animation durations (swap, fall, destroy, spawn)
-- Scoring (points per tile, combo multiplier)
-- Tile colors array
+### Deployment
 
-## Deployment
+Push to `main` → GitHub Actions runs `npm ci && npm run build` → uploads `dist/` to GitHub Pages. No manual steps needed.
 
-GitHub Actions workflow (`.github/workflows/deploy.yml`):
+### Stale file
 
-- Triggers on `push` to `main` or manual `workflow_dispatch`
-- Builds with `npm run build`
-- Deploys the `dist/` folder to GitHub Pages
-- Published at `https://vapes.github.io/v-ball/`
-
-## Key Patterns to Preserve
-
-1. **Modular class design**: Each system (Board, Tile, Input, Animator, Score) is self-contained
-2. **Configuration-first approach**: Behavior tuning via `constants.ts`, not magic numbers
-3. **Async animation pipeline**: Board uses `await` to sequence animations — don't break the chain
-4. **Pure matching logic**: `matching.ts` functions are pure and testable, separated from rendering
-5. **Separation of concerns**: Grid data (TileType[][]) is separate from visual representation (Tile[][])
-
-## Development Notes
-
-- TypeScript strict mode is enabled; all code is strictly typed
-- Path alias `@/*` resolves to `src/*` (configured in `tsconfig.json` and `vite.config.ts`)
-- The game uses ESM (`"type": "module"` in package.json)
-- PixiJS v8 — uses the new Graphics API (method chaining: `.roundRect().fill()`)
-- Vite base path is `/v-ball/` for GitHub Pages subdirectory deployment
+`public/index.html` is an unused leftover from the original Three.js/webpack setup (references `../dist/bundle.js`). It has no effect on the Vite build and can be deleted.

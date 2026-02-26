@@ -1,55 +1,45 @@
-import { Container, FederatedPointerEvent, Graphics } from "pixi.js";
+import { Container, FederatedPointerEvent } from "pixi.js";
 import { CELL_SIZE, BOARD_PADDING, TILE_SIZE, GRID_COLS, GRID_ROWS } from "../constants";
 import type { GridPosition, SwapRequest } from "../types";
 
 export type SwapCallback = (req: SwapRequest) => void;
 
+const SWIPE_THRESHOLD = TILE_SIZE * 0.3;
+
 /**
  * Handles pointer input on the board.
- * Supports two interaction modes:
- * 1. Click tile A, then click adjacent tile B
- * 2. Click and drag/swipe to an adjacent tile
+ * Swipe-only: drag any tile in a cardinal direction to swap with its neighbor.
  */
 export class InputHandler {
-  private selected: GridPosition | null = null;
   private enabled = true;
   private onSwap: SwapCallback;
   private boardContainer: Container;
-  private highlight: Container;
   private pointerDown = false;
   private downPos: GridPosition | null = null;
+  private downPixel: { x: number; y: number } | null = null;
+  private swiped = false;
 
   constructor(boardContainer: Container, onSwap: SwapCallback) {
     this.boardContainer = boardContainer;
     this.onSwap = onSwap;
 
-    // Selection highlight
-    this.highlight = new Container();
-    this.highlight.visible = false;
-    boardContainer.addChild(this.highlight);
-
-    const g = new Graphics();
-    const half = TILE_SIZE / 2 + 3;
-    g.roundRect(-half, -half, half * 2, half * 2, 12)
-      .stroke({ width: 3, color: 0xffffff, alpha: 0.9 });
-    this.highlight.addChild(g);
-
     boardContainer.eventMode = "static";
     boardContainer.on("pointerdown", this.onPointerDown, this);
+    boardContainer.on("pointermove", this.onPointerMove, this);
     boardContainer.on("pointerup", this.onPointerUp, this);
     boardContainer.on("pointerupoutside", this.onPointerUp, this);
   }
 
   setEnabled(v: boolean): void {
     this.enabled = v;
-    if (!v) {
-      this.clearSelection();
-    }
+    if (!v) this.reset();
   }
 
-  clearSelection(): void {
-    this.selected = null;
-    this.highlight.visible = false;
+  private reset(): void {
+    this.pointerDown = false;
+    this.downPos = null;
+    this.downPixel = null;
+    this.swiped = false;
   }
 
   private hitTest(e: FederatedPointerEvent): GridPosition | null {
@@ -57,62 +47,57 @@ export class InputHandler {
     const col = Math.floor((local.x - BOARD_PADDING) / CELL_SIZE);
     const row = Math.floor((local.y - BOARD_PADDING) / CELL_SIZE);
     if (row < 0 || row >= GRID_ROWS || col < 0 || col >= GRID_COLS) return null;
-
-    // Check within tile bounds (not in gap)
     const inCellX = (local.x - BOARD_PADDING) - col * CELL_SIZE;
     const inCellY = (local.y - BOARD_PADDING) - row * CELL_SIZE;
     if (inCellX > TILE_SIZE || inCellY > TILE_SIZE) return null;
-
     return { row, col };
+  }
+
+  private trySwipeFrom(pixel: { x: number; y: number }): void {
+    if (!this.downPos || !this.downPixel || this.swiped) return;
+    const dx = pixel.x - this.downPixel.x;
+    const dy = pixel.y - this.downPixel.y;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
+    if (adx < SWIPE_THRESHOLD && ady < SWIPE_THRESHOLD) return;
+
+    this.swiped = true;
+    const a = this.downPos;
+    let b: GridPosition;
+    if (adx > ady) {
+      b = { row: a.row, col: a.col + (dx > 0 ? 1 : -1) };
+    } else {
+      b = { row: a.row + (dy > 0 ? 1 : -1), col: a.col };
+    }
+    if (b.row >= 0 && b.row < GRID_ROWS && b.col >= 0 && b.col < GRID_COLS) {
+      this.onSwap({ a, b });
+    }
   }
 
   private onPointerDown = (e: FederatedPointerEvent): void => {
     if (!this.enabled) return;
     const pos = this.hitTest(e);
     if (!pos) return;
-
+    const local = this.boardContainer.toLocal(e.global);
     this.pointerDown = true;
     this.downPos = pos;
+    this.downPixel = { x: local.x, y: local.y };
+    this.swiped = false;
+  };
 
-    if (this.selected) {
-      if (this.isAdjacent(this.selected, pos)) {
-        this.onSwap({ a: this.selected, b: pos });
-        this.clearSelection();
-        return;
-      }
-    }
-
-    this.select(pos);
+  private onPointerMove = (e: FederatedPointerEvent): void => {
+    if (!this.enabled || !this.pointerDown) return;
+    const local = this.boardContainer.toLocal(e.global);
+    this.trySwipeFrom(local);
   };
 
   private onPointerUp = (e: FederatedPointerEvent): void => {
-    if (!this.enabled || !this.pointerDown || !this.downPos) {
-      this.pointerDown = false;
-      this.downPos = null;
+    if (!this.enabled || !this.pointerDown) {
+      this.reset();
       return;
     }
-
-    const pos = this.hitTest(e);
-    this.pointerDown = false;
-
-    if (pos && this.downPos && this.isAdjacent(this.downPos, pos)) {
-      this.onSwap({ a: this.downPos, b: pos });
-      this.clearSelection();
-    }
-
-    this.downPos = null;
+    const local = this.boardContainer.toLocal(e.global);
+    this.trySwipeFrom(local);
+    this.reset();
   };
-
-  private select(pos: GridPosition): void {
-    this.selected = pos;
-    this.highlight.visible = true;
-    this.highlight.x = BOARD_PADDING + pos.col * CELL_SIZE + TILE_SIZE / 2;
-    this.highlight.y = BOARD_PADDING + pos.row * CELL_SIZE + TILE_SIZE / 2;
-  }
-
-  private isAdjacent(a: GridPosition, b: GridPosition): boolean {
-    const dr = Math.abs(a.row - b.row);
-    const dc = Math.abs(a.col - b.col);
-    return (dr === 1 && dc === 0) || (dr === 0 && dc === 1);
-  }
 }
