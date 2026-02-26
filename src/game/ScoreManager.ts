@@ -1,8 +1,8 @@
 import { POINTS_PER_TILE, COMBO_MULTIPLIER } from "../constants";
 import { TILE_TYPE_COUNT } from "../types";
 
-const STARTING_COLORS = 3;
-const POINTS_PER_NEW_COLOR = 1000;
+const STARTING_COLORS = 4;
+const POINTS_PER_NEW_COLOR = 3000;
 
 export class ScoreManager {
   private _score = 0;
