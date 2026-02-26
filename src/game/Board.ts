@@ -122,7 +122,8 @@ export class Board {
 
     // Check for valid moves remaining
     if (!hasValidMoves(this.grid)) {
-      await this.reshuffleBoard();
+      this.showGameOver();
+      return;
     }
 
     this.busy = false;
@@ -231,6 +232,11 @@ export class Board {
     }
 
     await Promise.all(spawnPromises);
+  }
+
+  private showGameOver(): void {
+    const overlay = document.getElementById("game-over")!;
+    overlay.classList.add("show");
   }
 
   private async reshuffleBoard(): Promise<void> {

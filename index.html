@@ -62,11 +62,48 @@
       @media (orientation: landscape) and (max-height: 500px) {
         #rotate-hint { display: flex; }
       }
+      #game-over {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(26, 26, 46, 0.95);
+        color: #fff;
+        font-size: 2.5rem;
+        font-weight: 700;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 2rem;
+        z-index: 100;
+        text-align: center;
+        padding: 2rem;
+      }
+      #game-over.show {
+        display: flex;
+      }
+      #game-over button {
+        background: #3498db;
+        color: white;
+        border: none;
+        padding: 12px 32px;
+        font-size: 1.2rem;
+        font-weight: 600;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      #game-over button:hover {
+        background: #2980b9;
+      }
     </style>
   </head>
   <body>
     <div id="score">Score: 0</div>
     <div id="app"></div>
+    <div id="game-over">
+      <div>Game Over</div>
+      <button onclick="location.reload()">Play Again</button>
+    </div>
     <div id="rotate-hint">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
         <rect x="5" y="2" width="14" height="20" rx="2"/>
