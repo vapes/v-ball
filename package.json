@@ -1,29 +1,27 @@
 {
   "name": "v-ball",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "3D physics-based marble platformer",
+  "type": "module",
   "scripts": {
-    "build": "webpack --mode production",
-    "dev": "webpack serve --mode development",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
   },
   "repository": {
     "type": "git",
-    "url": "http://local_proxy@127.0.0.1:46231/git/vapes/v-ball"
+    "url": "http://local_proxy@127.0.0.1:20029/git/vapes/v-ball"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "three": "^0.183.1"
   },
   "devDependencies": {
     "@types/three": "^0.183.1",
-    "ts-loader": "^9.5.4",
     "typescript": "^5.9.3",
-    "webpack": "^5.105.3",
-    "webpack-cli": "^6.0.1",
-    "webpack-dev-server": "^5.2.3"
+    "vite": "^7.3.1"
   }
 }
