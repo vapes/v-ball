@@ -128,6 +128,12 @@ export class Tile {
           .rect(-s * 0.7, -s * 0.7, s * 1.4, s * 1.4)
           .stroke();
         break;
+      case TileType.Pink: // Cross / plus
+        this.gfx
+          .rect(-s * 0.3, -s, s * 0.6, s * 2)
+          .rect(-s, -s * 0.3, s * 2, s * 0.6)
+          .stroke();
+        break;
     }
   }
 

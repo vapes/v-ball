@@ -5,9 +5,10 @@ export enum TileType {
   Yellow = 3,
   Purple = 4,
   Orange = 5,
+  Pink = 6,
 }
 
-export const TILE_TYPE_COUNT = 6;
+export const TILE_TYPE_COUNT = 7;
 
 export interface GridPosition {
   row: number;

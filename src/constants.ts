@@ -34,4 +34,5 @@ export const TILE_COLORS: number[] = [
   0xf1c40f, // Yellow
   0x9b59b6, // Purple
   0xe67e22, // Orange
+  0xff69b4, // Pink
 ];
