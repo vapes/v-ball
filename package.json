@@ -1,7 +1,7 @@
 {
   "name": "v-ball",
-  "version": "1.0.0",
-  "description": "3D physics-based marble platformer",
+  "version": "2.0.0",
+  "description": "Match-3 puzzle game built with PixiJS",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,11 +16,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.19.3",
-    "three": "^0.183.1"
+    "pixi.js": "^8.9.2"
   },
   "devDependencies": {
-    "@types/three": "^0.183.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   }
