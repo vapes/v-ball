@@ -18,13 +18,18 @@ export const SWAP_DURATION = 0.2;
 export const FALL_DURATION = 0.15; // per cell
 export const DESTROY_DURATION = 0.25;
 export const SPAWN_DURATION = 0.15;
+export const BOMB_DELAY = 0.1; // delay before bomb effect triggers
 
 /** Scoring */
 export const POINTS_PER_TILE = 10;
 export const COMBO_MULTIPLIER = 1.5;
+export const LINE_BOMB_BONUS = 20;
+export const COLOR_BOMB_BONUS = 50;
 
 /** Minimum match length */
 export const MIN_MATCH = 3;
+export const LINE_BOMB_MATCH = 4;
+export const COLOR_BOMB_MATCH = 5;
 
 /** Tile colors — indices map to TileType enum values */
 export const TILE_COLORS: number[] = [
@@ -35,4 +40,6 @@ export const TILE_COLORS: number[] = [
   0x9b59b6, // Purple
   0xe67e22, // Orange
   0xff69b4, // Pink
+  0xffffff, // LineBomb (white — drawn with special indicator)
+  0xffffff, // ColorBomb (white — drawn as rainbow)
 ];
