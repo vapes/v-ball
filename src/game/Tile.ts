@@ -1,13 +1,29 @@
 import { Container, Graphics } from "pixi.js";
 import { TILE_SIZE, TILE_RADIUS, TILE_COLORS, CELL_SIZE, BOARD_PADDING } from "../constants";
 import { TileType } from "../types";
+import type { BonusOrientation } from "../types";
 import type { Animator } from "./Animator";
+
+/** Rainbow colors used for the Color Bomb visual. */
+const RAINBOW = [0xe74c3c, 0xf39c12, 0xf1c40f, 0x2ecc71, 0x3498db, 0x9b59b6];
 
 export class Tile {
   readonly container: Container;
   tileType: TileType;
   gridRow: number;
   gridCol: number;
+
+  /**
+   * For LineBomb tiles: which axis to clear when detonated.
+   * For regular / ColorBomb tiles this is undefined.
+   */
+  bonusOrientation?: BonusOrientation;
+
+  /**
+   * For LineBomb tiles: the underlying color of the tile that created this bomb.
+   * Used so the line bomb visually retains a color hint.
+   */
+  baseColor?: number;
 
   private gfx: Graphics;
 
@@ -81,26 +97,39 @@ export class Tile {
     );
   }
 
-  private draw(): void {
-    const color = TILE_COLORS[this.tileType];
-    const half = TILE_SIZE / 2;
+  /** Redraw the tile (called after changing type, e.g. when converting to bonus). */
+  redraw(): void {
+    this.draw();
+  }
 
+  private draw(): void {
+    const half = TILE_SIZE / 2;
     this.gfx.clear();
 
-    // Background rounded rect
+    if (this.tileType === TileType.ColorBomb) {
+      this.drawColorBomb(half);
+      return;
+    }
+
+    if (this.tileType === TileType.LineBomb) {
+      this.drawLineBomb(half);
+      return;
+    }
+
+    // Regular tile
+    const color = TILE_COLORS[this.tileType];
     this.gfx
       .roundRect(-half, -half, TILE_SIZE, TILE_SIZE, TILE_RADIUS)
       .fill({ color });
 
-    // Draw a distinct shape per type
     this.gfx.setStrokeStyle({ width: 2.5, color: 0xffffff, alpha: 0.85 });
 
-    const s = half * 0.5; // shape half-size
+    const s = half * 0.5;
     switch (this.tileType) {
-      case TileType.Red: // Circle
+      case TileType.Red:
         this.gfx.circle(0, 0, s).stroke();
         break;
-      case TileType.Blue: // Diamond
+      case TileType.Blue:
         this.gfx
           .moveTo(0, -s)
           .lineTo(s, 0)
@@ -109,13 +138,13 @@ export class Tile {
           .closePath()
           .stroke();
         break;
-      case TileType.Green: // Star (6-point simple)
+      case TileType.Green:
         this.drawStar(6, s, s * 0.5);
         break;
-      case TileType.Yellow: // Heart (simplified)
+      case TileType.Yellow:
         this.drawHeart(s);
         break;
-      case TileType.Purple: // Triangle
+      case TileType.Purple:
         this.gfx
           .moveTo(0, -s)
           .lineTo(s, s * 0.8)
@@ -123,18 +152,83 @@ export class Tile {
           .closePath()
           .stroke();
         break;
-      case TileType.Orange: // Square
+      case TileType.Orange:
         this.gfx
           .rect(-s * 0.7, -s * 0.7, s * 1.4, s * 1.4)
           .stroke();
         break;
-      case TileType.Pink: // Cross / plus
+      case TileType.Pink:
         this.gfx
           .rect(-s * 0.3, -s, s * 0.6, s * 2)
           .rect(-s, -s * 0.3, s * 2, s * 0.6)
           .stroke();
         break;
     }
+  }
+
+  /** Draw a Line Bomb tile: colored background with a directional arrow. */
+  private drawLineBomb(half: number): void {
+    const bg = this.baseColor ?? 0x888888;
+
+    // Background
+    this.gfx
+      .roundRect(-half, -half, TILE_SIZE, TILE_SIZE, TILE_RADIUS)
+      .fill({ color: bg });
+
+    // Bright border to signal "special"
+    this.gfx
+      .roundRect(-half, -half, TILE_SIZE, TILE_SIZE, TILE_RADIUS)
+      .stroke({ width: 3, color: 0xffffff });
+
+    const s = half * 0.55;
+
+    if (this.bonusOrientation === "horizontal") {
+      // Horizontal arrows: ← →
+      this.gfx.setStrokeStyle({ width: 3, color: 0xffffff });
+      // Left arrow
+      this.gfx.moveTo(-s, 0).lineTo(s, 0).stroke();
+      this.gfx.moveTo(-s, 0).lineTo(-s * 0.5, -s * 0.4).stroke();
+      this.gfx.moveTo(-s, 0).lineTo(-s * 0.5, s * 0.4).stroke();
+      // Right arrow
+      this.gfx.moveTo(s, 0).lineTo(s * 0.5, -s * 0.4).stroke();
+      this.gfx.moveTo(s, 0).lineTo(s * 0.5, s * 0.4).stroke();
+    } else {
+      // Vertical arrows: ↑ ↓
+      this.gfx.setStrokeStyle({ width: 3, color: 0xffffff });
+      this.gfx.moveTo(0, -s).lineTo(0, s).stroke();
+      this.gfx.moveTo(0, -s).lineTo(-s * 0.4, -s * 0.5).stroke();
+      this.gfx.moveTo(0, -s).lineTo(s * 0.4, -s * 0.5).stroke();
+      this.gfx.moveTo(0, s).lineTo(-s * 0.4, s * 0.5).stroke();
+      this.gfx.moveTo(0, s).lineTo(s * 0.4, s * 0.5).stroke();
+    }
+  }
+
+  /** Draw a Color Bomb tile: rainbow background with a star. */
+  private drawColorBomb(half: number): void {
+    // Dark background
+    this.gfx
+      .roundRect(-half, -half, TILE_SIZE, TILE_SIZE, TILE_RADIUS)
+      .fill({ color: 0x222222 });
+
+    // Rainbow ring segments
+    const segAngle = (Math.PI * 2) / RAINBOW.length;
+    const outer = half * 0.85;
+    const inner = half * 0.55;
+    for (let i = 0; i < RAINBOW.length; i++) {
+      const a1 = segAngle * i - Math.PI / 2;
+      const a2 = a1 + segAngle;
+      this.gfx
+        .moveTo(Math.cos(a1) * inner, Math.sin(a1) * inner)
+        .lineTo(Math.cos(a1) * outer, Math.sin(a1) * outer)
+        .lineTo(Math.cos(a2) * outer, Math.sin(a2) * outer)
+        .lineTo(Math.cos(a2) * inner, Math.sin(a2) * inner)
+        .closePath()
+        .fill({ color: RAINBOW[i] });
+    }
+
+    // White star in center
+    this.gfx.setStrokeStyle({ width: 2, color: 0xffffff });
+    this.drawStar(5, half * 0.35, half * 0.15);
   }
 
   private drawStar(points: number, outer: number, inner: number): void {
@@ -150,7 +244,6 @@ export class Tile {
   }
 
   private drawHeart(s: number): void {
-    // Simple heart approximation
     this.gfx
       .moveTo(0, s * 0.6)
       .bezierCurveTo(-s, -s * 0.2, -s * 0.5, -s, 0, -s * 0.4)
