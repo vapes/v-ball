@@ -37,6 +37,20 @@
         padding-top: 8px;
         white-space: nowrap;
       }
+      #best-score {
+        position: fixed;
+        top: env(safe-area-inset-top, 16px);
+        left: 50%;
+        transform: translateX(-50%);
+        color: #f1c40f;
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+        pointer-events: none;
+        z-index: 10;
+        padding-top: 40px;
+        white-space: nowrap;
+      }
       /* Landscape overlay — ask player to rotate */
       #rotate-hint {
         display: none;
@@ -99,6 +113,7 @@
   </head>
   <body>
     <div id="score">Score: 0</div>
+    <div id="best-score"></div>
     <div id="app"></div>
     <div id="game-over">
       <div>Game Over</div>
