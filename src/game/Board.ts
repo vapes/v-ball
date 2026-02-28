@@ -17,6 +17,7 @@ import {
   COLOR_BOMB_MATCH,
   LINE_BOMB_BONUS,
   COLOR_BOMB_BONUS,
+  LASER_DURATION,
 } from "../constants";
 import { TileType } from "../types";
 import type { GridPosition, MatchGroup, SwapRequest, BonusOrientation } from "../types";
@@ -128,15 +129,15 @@ export class Board {
         const otherTile = this.tiles[otherPos.row][otherPos.col]!;
         const targetType = otherTile.tileType;
 
-        // Destroy the color bomb itself
-        await this.destroySingleTile(bombPos);
-
         if (targetType === TileType.LineBomb) {
-          // Color bomb + line bomb: destroy the line bomb (triggers its effect)
+          // Color bomb + line bomb: destroy both
+          await this.destroySingleTile(bombPos);
           await this.destroySingleTile(otherPos);
         } else {
-          // Destroy all tiles of the target color
-          await this.detonateColorBomb(targetType);
+          // Fire laser from bomb position and destroy all tiles of the target color
+          await this.detonateColorBomb(targetType, bombPos);
+          // Then destroy the color bomb itself
+          await this.destroySingleTile(bombPos);
         }
       }
 
@@ -443,19 +444,51 @@ export class Board {
       } else if (this.tiles[bp.row][bp.col]!.tileType === TileType.ColorBomb) {
         // Pick a random color to clear
         const randomColor = this.pickRandomColorOnBoard();
-        await this.destroySingleTile(bp);
         if (randomColor !== null) {
-          await this.detonateColorBomb(randomColor);
+          await this.detonateColorBomb(randomColor, bp);
         }
+        await this.destroySingleTile(bp);
       }
     }
+  }
+
+  /** Create laser beam graphics from a source position to all targets. */
+  private createLaserBeams(
+    sourcePos: GridPosition,
+    targets: GridPosition[],
+    color: number,
+  ): Graphics {
+    const gfx = new Graphics();
+    const sx = Tile.pixelX(sourcePos.col);
+    const sy = Tile.pixelY(sourcePos.row);
+
+    for (const t of targets) {
+      const tx = Tile.pixelX(t.col);
+      const ty = Tile.pixelY(t.row);
+
+      // Outer glow
+      gfx.moveTo(sx, sy).lineTo(tx, ty)
+        .stroke({ width: 8, color, alpha: 0.3 });
+      // Core beam
+      gfx.moveTo(sx, sy).lineTo(tx, ty)
+        .stroke({ width: 3, color: 0xffffff, alpha: 0.9 });
+      // Impact dot at target
+      gfx.circle(tx, ty, 6)
+        .fill({ color, alpha: 0.5 });
+    }
+
+    // Source flash
+    gfx.circle(sx, sy, 10)
+      .fill({ color: 0xffffff, alpha: 0.7 });
+
+    return gfx;
   }
 
   /**
    * Detonate a Color Bomb: destroy all tiles of `targetType` on the board.
    * If any of those tiles are bombs, chain-detonate them.
    */
-  private async detonateColorBomb(targetType: TileType): Promise<void> {
+  private async detonateColorBomb(targetType: TileType, sourcePos?: GridPosition): Promise<void> {
     const targets: GridPosition[] = [];
     for (let r = 0; r < GRID_ROWS; r++) {
       for (let c = 0; c < GRID_COLS; c++) {
@@ -466,6 +499,19 @@ export class Board {
     }
 
     if (targets.length === 0) return;
+
+    // Fire laser beams from source to all targets
+    let laserGfx: Graphics | null = null;
+    if (sourcePos) {
+      laserGfx = this.createLaserBeams(sourcePos, targets, TILE_COLORS[targetType]);
+      laserGfx.alpha = 0;
+      this.tileContainer.addChild(laserGfx);
+      await this.animator.animate(
+        laserGfx as unknown as Record<string, number>,
+        { alpha: 1 },
+        LASER_DURATION,
+      );
+    }
 
     this.score.addMatch(targets.length + COLOR_BOMB_BONUS);
 
@@ -497,6 +543,16 @@ export class Board {
       }
     }
 
+    // Fade and remove laser beams
+    if (laserGfx) {
+      await this.animator.animate(
+        laserGfx as unknown as Record<string, number>,
+        { alpha: 0 },
+        LASER_DURATION,
+      );
+      this.tileContainer.removeChild(laserGfx);
+    }
+
     // Chain detonate
     for (const bp of chainedBombs) {
       if (!this.tiles[bp.row][bp.col]) continue;
@@ -504,10 +560,10 @@ export class Board {
         await this.detonateLineBomb(bp);
       } else if (this.tiles[bp.row][bp.col]!.tileType === TileType.ColorBomb) {
         const randomColor = this.pickRandomColorOnBoard();
-        await this.destroySingleTile(bp);
         if (randomColor !== null) {
-          await this.detonateColorBomb(randomColor);
+          await this.detonateColorBomb(randomColor, bp);
         }
+        await this.destroySingleTile(bp);
       }
     }
   }
