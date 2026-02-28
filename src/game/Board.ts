@@ -129,20 +129,16 @@ export class Board {
   }
 
   /**
-   * Build a grid where line bomb positions use their base color for matching.
-   * This lets findMatches/hasValidMoves treat line bombs as their original color.
+   * Build a grid for matching logic.
+   * All line bombs are kept as TileType.LineBomb so they match each other
+   * regardless of their original base color.
    */
   private buildMatchableGrid(): (TileType | null)[][] {
     const matchGrid: (TileType | null)[][] = [];
     for (let r = 0; r < GRID_ROWS; r++) {
       matchGrid[r] = [];
       for (let c = 0; c < GRID_COLS; c++) {
-        const tile = this.tiles[r][c];
-        if (tile?.tileType === TileType.LineBomb && tile.baseType !== undefined) {
-          matchGrid[r][c] = tile.baseType;
-        } else {
-          matchGrid[r][c] = this.grid[r][c];
-        }
+        matchGrid[r][c] = this.grid[r][c];
       }
     }
     return matchGrid;
@@ -302,7 +298,7 @@ export class Board {
       const tile = this.tiles[pos.row][pos.col];
       if (!tile) continue;
 
-      // Line bombs in a match are detonated separately — skip destruction
+      // Line bombs in a match are detonated separately
       if (tile.tileType === TileType.LineBomb) {
         triggeredBombs.push({ row: pos.row, col: pos.col });
         continue;
@@ -313,24 +309,24 @@ export class Board {
 
       destroyPromises.push(tile.animateDestroy(this.animator, DESTROY_DURATION));
     }
+
+    // Run bomb detonations in parallel with regular tile destruction
+    for (const bp of triggeredBombs) {
+      if (!this.tiles[bp.row][bp.col]) continue;
+      destroyPromises.push(this.detonateLineBomb(bp));
+    }
+
     await Promise.all(destroyPromises);
 
-    // Remove destroyed tiles from both arrays (except bonus positions and line bombs)
+    // Remove destroyed tiles from both arrays (except bonus positions)
     for (const pos of allPositions) {
       if (bonusPosKeys.has(`${pos.row},${pos.col}`)) continue;
       const tile = this.tiles[pos.row][pos.col];
-      if (tile?.tileType === TileType.LineBomb) continue; // kept for detonation
-      if (tile) {
-        this.tileContainer.removeChild(tile.container);
-      }
+      if (!tile) continue; // already removed by bomb detonation
+      if (tile.tileType === TileType.LineBomb) continue; // already handled by detonation
+      this.tileContainer.removeChild(tile.container);
       this.tiles[pos.row][pos.col] = null;
       this.grid[pos.row][pos.col] = null;
-    }
-
-    // Detonate line bombs that were caught in the match (before spawning bonuses)
-    for (const bp of triggeredBombs) {
-      if (!this.tiles[bp.row][bp.col]) continue; // already detonated via chain
-      await this.detonateLineBomb(bp);
     }
 
     // Spawn bonus tiles in-place
