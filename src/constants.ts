@@ -19,6 +19,7 @@ export const FALL_DURATION = 0.15; // per cell
 export const DESTROY_DURATION = 0.25;
 export const SPAWN_DURATION = 0.15;
 export const BOMB_DELAY = 0.1; // delay before bomb effect triggers
+export const LASER_DURATION = 0.15; // laser beam flash/fade duration
 
 /** Scoring */
 export const POINTS_PER_TILE = 10;
