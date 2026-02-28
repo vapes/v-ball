@@ -2,9 +2,9 @@ import { GRID_COLS, GRID_ROWS, MIN_MATCH } from "../constants";
 import type { GridPosition, MatchGroup } from "../types";
 import { TileType } from "../types";
 
-/** Returns true for regular (color) tiles that participate in matching. */
+/** Returns true for tiles that participate in matching (regular colors + line bombs). */
 function isMatchable(t: TileType | null): boolean {
-  return t !== null && t !== TileType.LineBomb && t !== TileType.ColorBomb;
+  return t !== null && t !== TileType.ColorBomb;
 }
 
 /**
