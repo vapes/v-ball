@@ -1,5 +1,5 @@
 import { Container, Graphics } from "pixi.js";
-import { TILE_SIZE, TILE_RADIUS, TILE_COLORS, CELL_SIZE, BOARD_PADDING } from "../constants";
+import { TILE_SIZE, TILE_RADIUS, TILE_COLORS, CELL_SIZE, BOARD_PADDING, HINT_BLINK_INTERVAL } from "../constants";
 import { TileType } from "../types";
 import type { BonusOrientation } from "../types";
 import type { Animator } from "./Animator";
@@ -32,6 +32,7 @@ export class Tile {
   baseType?: TileType;
 
   private gfx: Graphics;
+  private blinkTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(type: TileType, row: number, col: number) {
     this.tileType = type;
@@ -101,6 +102,23 @@ export class Tile {
       { x: 1, y: 1 },
       duration,
     );
+  }
+
+  /** Start blinking this tile (hint animation). */
+  startBlink(): void {
+    if (this.blinkTimer) return;
+    this.blinkTimer = setInterval(() => {
+      this.container.alpha = this.container.alpha < 1 ? 1 : 0.3;
+    }, HINT_BLINK_INTERVAL);
+  }
+
+  /** Stop blinking and restore full opacity. */
+  stopBlink(): void {
+    if (this.blinkTimer) {
+      clearInterval(this.blinkTimer);
+      this.blinkTimer = null;
+    }
+    this.container.alpha = 1;
   }
 
   /** Redraw the tile (called after changing type, e.g. when converting to bonus). */

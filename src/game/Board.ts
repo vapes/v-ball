@@ -18,6 +18,7 @@ import {
   LINE_BOMB_BONUS,
   COLOR_BOMB_BONUS,
   LASER_DURATION,
+  HINT_DELAY,
 } from "../constants";
 import { TileType } from "../types";
 import type { GridPosition, MatchGroup, SwapRequest, BonusOrientation } from "../types";
@@ -25,7 +26,7 @@ import { Tile } from "./Tile";
 import { Animator } from "./Animator";
 import { InputHandler } from "./InputHandler";
 import { ScoreManager } from "./ScoreManager";
-import { findMatches, hasValidMoves } from "../utils/matching";
+import { findMatches, hasValidMoves, findValidMove } from "../utils/matching";
 import { generateGrid, randomTileType } from "../utils/random";
 
 export class Board {
@@ -41,6 +42,10 @@ export class Board {
   /** Tracks the position of the last player-initiated swap (tile B's destination). */
   private lastSwapPos: GridPosition | null = null;
 
+  /** Hint system state */
+  private hintTimer: ReturnType<typeof setTimeout> | null = null;
+  private hintTiles: Tile[] = [];
+
   constructor(animator: Animator) {
     this.animator = animator;
     this.container = new Container();
@@ -53,6 +58,42 @@ export class Board {
     this.input = new InputHandler(this.container, (req) => this.onSwapRequest(req));
 
     this.initGrid();
+    this.resetHintTimer();
+  }
+
+  /** Cancel any active hint blink and clear the timer. */
+  private clearHint(): void {
+    if (this.hintTimer) {
+      clearTimeout(this.hintTimer);
+      this.hintTimer = null;
+    }
+    for (const tile of this.hintTiles) {
+      tile.stopBlink();
+    }
+    this.hintTiles = [];
+  }
+
+  /** Start (or restart) the 5-second idle timer for the hint. */
+  private resetHintTimer(): void {
+    this.clearHint();
+    this.hintTimer = setTimeout(() => this.showHint(), HINT_DELAY);
+  }
+
+  /** Find the best move and blink those tiles. */
+  private showHint(): void {
+    const move = findValidMove(this.buildMatchableGrid());
+    if (!move) return;
+
+    const tileA = this.tiles[move.a.row][move.a.col];
+    const tileB = this.tiles[move.b.row][move.b.col];
+    if (tileA) {
+      tileA.startBlink();
+      this.hintTiles.push(tileA);
+    }
+    if (tileB) {
+      tileB.startBlink();
+      this.hintTiles.push(tileB);
+    }
   }
 
   private drawBackground(): void {
@@ -113,6 +154,7 @@ export class Board {
     if (this.busy) return;
     this.busy = true;
     this.input.setEnabled(false);
+    this.clearHint();
 
     const { a, b } = req;
     const tileA = this.tiles[a.row][a.col];
@@ -177,6 +219,7 @@ export class Board {
 
       this.busy = false;
       this.input.setEnabled(true);
+      this.resetHintTimer();
       return;
     }
 
@@ -215,6 +258,7 @@ export class Board {
 
     this.busy = false;
     this.input.setEnabled(true);
+    this.resetHintTimer();
   }
 
   private swapInGrid(a: GridPosition, b: GridPosition): void {

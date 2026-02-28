@@ -20,6 +20,8 @@ export const DESTROY_DURATION = 0.25;
 export const SPAWN_DURATION = 0.15;
 export const BOMB_DELAY = 0.1; // delay before bomb effect triggers
 export const LASER_DURATION = 0.15; // laser beam flash/fade duration
+export const HINT_DELAY = 5000; // ms before hint blinks start
+export const HINT_BLINK_INTERVAL = 250; // ms per half-cycle (2 blinks/sec = 250ms on, 250ms off)
 
 /** Scoring */
 export const POINTS_PER_TILE = 10;
