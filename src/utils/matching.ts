@@ -107,6 +107,52 @@ export function hasValidMoves(grid: (TileType | null)[][]): boolean {
   return false;
 }
 
+/**
+ * Find a valid move that produces a match, returning the two swap positions.
+ * Prefers moves that produce longer matches (best hint).
+ */
+export function findValidMove(
+  grid: (TileType | null)[][],
+): { a: GridPosition; b: GridPosition } | null {
+  let best: { a: GridPosition; b: GridPosition } | null = null;
+  let bestLen = 0;
+
+  for (let r = 0; r < GRID_ROWS; r++) {
+    for (let c = 0; c < GRID_COLS; c++) {
+      if (grid[r][c] === TileType.ColorBomb) continue;
+
+      // Try swap right
+      if (c + 1 < GRID_COLS && grid[r][c + 1] !== TileType.ColorBomb) {
+        swap(grid, r, c, r, c + 1);
+        const matches = findMatches(grid);
+        if (matches.length > 0) {
+          const totalLen = matches.reduce((sum, m) => sum + m.length, 0);
+          if (totalLen > bestLen) {
+            bestLen = totalLen;
+            best = { a: { row: r, col: c }, b: { row: r, col: c + 1 } };
+          }
+        }
+        swap(grid, r, c, r, c + 1);
+      }
+      // Try swap down
+      if (r + 1 < GRID_ROWS && grid[r + 1][c] !== TileType.ColorBomb) {
+        swap(grid, r, c, r + 1, c);
+        const matches = findMatches(grid);
+        if (matches.length > 0) {
+          const totalLen = matches.reduce((sum, m) => sum + m.length, 0);
+          if (totalLen > bestLen) {
+            bestLen = totalLen;
+            best = { a: { row: r, col: c }, b: { row: r + 1, col: c } };
+          }
+        }
+        swap(grid, r, c, r + 1, c);
+      }
+    }
+  }
+
+  return best;
+}
+
 function swap(
   grid: (TileType | null)[][],
   r1: number,
