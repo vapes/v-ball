@@ -9,59 +9,92 @@ function isMatchable(t: TileType | null): boolean {
 
 /**
  * Scan the grid for all horizontal and vertical matches of MIN_MATCH or more.
- * Each contiguous run is returned as its own MatchGroup with length and direction,
- * so the caller can differentiate 3-, 4-, and 5-in-a-row.
+ * LineBombs act as wildcards — they extend any color run and also match
+ * each other (a row of 3+ LineBombs counts as a match).
  */
 export function findMatches(grid: (TileType | null)[][]): MatchGroup[] {
   const groups: MatchGroup[] = [];
-  const matched = new Set<string>();
-  const key = (r: number, c: number) => `${r},${c}`;
 
   // Horizontal runs
   for (let r = 0; r < GRID_ROWS; r++) {
     let runStart = 0;
+    // Effective non-wild color of the current run (null = all wilds so far)
+    let runColor: TileType | null =
+      isMatchable(grid[r][0]) && grid[r][0] !== TileType.LineBomb
+        ? grid[r][0]
+        : null;
+
     for (let c = 1; c <= GRID_COLS; c++) {
-      if (
-        c < GRID_COLS &&
-        isMatchable(grid[r][c]) &&
-        grid[r][c] === grid[r][runStart]
-      ) {
-        continue;
-      }
-      const runLen = c - runStart;
-      if (runLen >= MIN_MATCH && isMatchable(grid[r][runStart])) {
-        const positions: GridPosition[] = [];
-        for (let k = runStart; k < c; k++) {
-          positions.push({ row: r, col: k });
-          matched.add(key(r, k));
+      const cell = c < GRID_COLS ? grid[r][c] : null;
+
+      let continues = false;
+      if (isMatchable(cell) && isMatchable(grid[r][runStart])) {
+        if (cell === TileType.LineBomb) {
+          continues = true;
+        } else if (runColor === null) {
+          runColor = cell;
+          continues = true;
+        } else if (cell === runColor) {
+          continues = true;
         }
-        groups.push({ positions, length: runLen, direction: "horizontal" });
       }
-      runStart = c;
+
+      if (!continues) {
+        const runLen = c - runStart;
+        if (runLen >= MIN_MATCH && isMatchable(grid[r][runStart])) {
+          const positions: GridPosition[] = [];
+          for (let k = runStart; k < c; k++) {
+            positions.push({ row: r, col: k });
+          }
+          groups.push({ positions, length: runLen, direction: "horizontal" });
+        }
+        runStart = c;
+        runColor =
+          c < GRID_COLS && isMatchable(cell) && cell !== TileType.LineBomb
+            ? cell
+            : null;
+      }
     }
   }
 
   // Vertical runs
   for (let c = 0; c < GRID_COLS; c++) {
     let runStart = 0;
+    let runColor: TileType | null =
+      isMatchable(grid[0][c]) && grid[0][c] !== TileType.LineBomb
+        ? grid[0][c]
+        : null;
+
     for (let r = 1; r <= GRID_ROWS; r++) {
-      if (
-        r < GRID_ROWS &&
-        isMatchable(grid[r][c]) &&
-        grid[r][c] === grid[runStart][c]
-      ) {
-        continue;
-      }
-      const runLen = r - runStart;
-      if (runLen >= MIN_MATCH && isMatchable(grid[runStart][c])) {
-        const positions: GridPosition[] = [];
-        for (let k = runStart; k < r; k++) {
-          positions.push({ row: k, col: c });
-          matched.add(key(k, c));
+      const cell = r < GRID_ROWS ? grid[r][c] : null;
+
+      let continues = false;
+      if (isMatchable(cell) && isMatchable(grid[runStart][c])) {
+        if (cell === TileType.LineBomb) {
+          continues = true;
+        } else if (runColor === null) {
+          runColor = cell;
+          continues = true;
+        } else if (cell === runColor) {
+          continues = true;
         }
-        groups.push({ positions, length: runLen, direction: "vertical" });
       }
-      runStart = r;
+
+      if (!continues) {
+        const runLen = r - runStart;
+        if (runLen >= MIN_MATCH && isMatchable(grid[runStart][c])) {
+          const positions: GridPosition[] = [];
+          for (let k = runStart; k < r; k++) {
+            positions.push({ row: k, col: c });
+          }
+          groups.push({ positions, length: runLen, direction: "vertical" });
+        }
+        runStart = r;
+        runColor =
+          r < GRID_ROWS && isMatchable(cell) && cell !== TileType.LineBomb
+            ? cell
+            : null;
+      }
     }
   }
 
