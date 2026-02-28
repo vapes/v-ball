@@ -4,6 +4,9 @@ import { TileType } from "../types";
 import type { BonusOrientation } from "../types";
 import type { Animator } from "./Animator";
 
+/** Target alpha when blinking (lighter than full opacity). */
+const BLINK_LIGHT_ALPHA = 0.7;
+
 /** Rainbow colors used for the Color Bomb visual. */
 const RAINBOW = [0xe74c3c, 0xf39c12, 0xf1c40f, 0x2ecc71, 0x3498db, 0x9b59b6];
 
@@ -32,7 +35,8 @@ export class Tile {
   baseType?: TileType;
 
   private gfx: Graphics;
-  private blinkTimer: ReturnType<typeof setInterval> | null = null;
+  private blinkTimer: ReturnType<typeof setTimeout> | null = null;
+  private isBlinking = false;
 
   constructor(type: TileType, row: number, col: number) {
     this.tileType = type;
@@ -104,18 +108,42 @@ export class Tile {
     );
   }
 
-  /** Start blinking this tile (hint animation). */
-  startBlink(): void {
-    if (this.blinkTimer) return;
-    this.blinkTimer = setInterval(() => {
-      this.container.alpha = this.container.alpha < 1 ? 1 : 0.3;
-    }, HINT_BLINK_INTERVAL);
+  /** Start blinking this tile (hint animation) with smooth fade. */
+  startBlink(animator: Animator): void {
+    if (this.isBlinking) return;
+    this.isBlinking = true;
+    this.blinkCycle(animator);
+  }
+
+  /** Animate one blink cycle and schedule the next. */
+  private async blinkCycle(animator: Animator): Promise<void> {
+    if (!this.isBlinking) return;
+
+    // Fade to light
+    await animator.animate(
+      this.container as unknown as Record<string, number>,
+      { alpha: BLINK_LIGHT_ALPHA },
+      HINT_BLINK_INTERVAL / 1000,
+    );
+    if (!this.isBlinking) return;
+
+    // Fade back to full
+    await animator.animate(
+      this.container as unknown as Record<string, number>,
+      { alpha: 1 },
+      HINT_BLINK_INTERVAL / 1000,
+    );
+    if (!this.isBlinking) return;
+
+    // Schedule next cycle
+    this.blinkTimer = setTimeout(() => this.blinkCycle(animator), 0);
   }
 
   /** Stop blinking and restore full opacity. */
   stopBlink(): void {
+    this.isBlinking = false;
     if (this.blinkTimer) {
-      clearInterval(this.blinkTimer);
+      clearTimeout(this.blinkTimer);
       this.blinkTimer = null;
     }
     this.container.alpha = 1;

@@ -15,9 +15,20 @@ interface Tween {
  */
 export class Animator {
   private tweens: Tween[] = [];
+  private speedMultiplier = 1;
 
   constructor(ticker: Ticker) {
     ticker.add(() => this.update(ticker.deltaMS / 1000));
+  }
+
+  /** Set the animation speed multiplier (e.g., 0.5 for half speed). */
+  setSpeed(multiplier: number): void {
+    this.speedMultiplier = multiplier;
+  }
+
+  /** Get the current animation speed multiplier. */
+  getSpeed(): number {
+    return this.speedMultiplier;
   }
 
   /** Animate numeric properties on `target` over `duration` seconds. */
@@ -38,7 +49,7 @@ export class Animator {
   private update(dt: number): void {
     for (let i = this.tweens.length - 1; i >= 0; i--) {
       const tw = this.tweens[i];
-      tw.elapsed += dt;
+      tw.elapsed += dt * this.speedMultiplier;
       const t = Math.min(tw.elapsed / tw.duration, 1);
       // Ease-out quad
       const ease = 1 - (1 - t) * (1 - t);

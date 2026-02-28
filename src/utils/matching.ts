@@ -2,100 +2,153 @@ import { GRID_COLS, GRID_ROWS, MIN_MATCH } from "../constants";
 import type { GridPosition, MatchGroup } from "../types";
 import { TileType } from "../types";
 
-/** Returns true for tiles that participate in matching (regular colors + line bombs). */
+/** Returns true for tiles that participate in matching (regular colors + LineBombs). */
 function isMatchable(t: TileType | null): boolean {
   return t !== null && t !== TileType.ColorBomb;
 }
 
 /**
- * Scan the grid for all horizontal and vertical matches of MIN_MATCH or more.
- * LineBombs act as wildcards — they extend any color run and also match
- * each other (a row of 3+ LineBombs counts as a match).
+ * Grid prepared for match detection.
+ *
+ * - grid:     effective-color grid — LineBombs are replaced by their base color
+ *             (TileType.Red, etc.), or kept as TileType.LineBomb when colorless.
+ * - bombMask: true at every cell that is a LineBomb.
+ *
+ * Matching rules:
+ *   1. Two adjacent LineBombs → always continue (bomb-bomb, color-independent).
+ *   2. LineBomb next to a run → continues only if its effective color matches runColor.
+ *   3. Regular tile → continues only if its color matches runColor.
+ *   4. A run made entirely of LineBombs is valid at length ≥ 2.
+ *   5. All other runs need length ≥ MIN_MATCH (3).
  */
-export function findMatches(grid: (TileType | null)[][]): MatchGroup[] {
+export interface MatchableGrid {
+  grid: (TileType | null)[][];
+  bombMask: boolean[][];
+}
+
+export function findMatches(mg: MatchableGrid): MatchGroup[] {
+  const { grid, bombMask } = mg;
   const groups: MatchGroup[] = [];
 
-  // Horizontal runs
-  for (let r = 0; r < GRID_ROWS; r++) {
+  /**
+   * Scan one row/column and push any runs that qualify as matches.
+   * @param getCell  returns the effective TileType at index i
+   * @param getBomb  returns whether cell i is a LineBomb
+   * @param makePos  converts index i to a GridPosition
+   * @param len      total length of the row/column
+   */
+  function scanRun(
+    getCell: (i: number) => TileType | null,
+    getBomb: (i: number) => boolean,
+    makePos: (i: number) => GridPosition,
+    len: number,
+    direction: "horizontal" | "vertical",
+  ): void {
     let runStart = 0;
-    // Effective non-wild color of the current run (null = all wilds so far)
-    let runColor: TileType | null =
-      isMatchable(grid[r][0]) && grid[r][0] !== TileType.LineBomb
-        ? grid[r][0]
-        : null;
+    // Effective color of the run; null means all wildcards so far.
+    let runColor: TileType | null = null;
+    // True once a non-bomb tile has joined the run.
+    let runHasNonBomb = false;
+    // Whether the most recently added cell is a bomb (for bomb-bomb rule).
+    let lastIsBomb = false;
 
-    for (let c = 1; c <= GRID_COLS; c++) {
-      const cell = c < GRID_COLS ? grid[r][c] : null;
+    // Initialise state for the first cell.
+    const first = getCell(0);
+    if (isMatchable(first)) {
+      lastIsBomb = getBomb(0);
+      runHasNonBomb = !lastIsBomb;
+      // A regular tile or a colored LineBomb sets the run color immediately.
+      if (!lastIsBomb) {
+        runColor = first;
+      } else if (first !== TileType.LineBomb) {
+        runColor = first; // colored LineBomb's effective color
+      }
+    }
+
+    const emitRun = (end: number) => {
+      const runLen = end - runStart;
+      // Pure bomb runs qualify at ≥ 2; all others need MIN_MATCH.
+      const qualifies = runLen >= MIN_MATCH || (runLen >= 2 && !runHasNonBomb);
+      if (qualifies && isMatchable(getCell(runStart))) {
+        const positions: GridPosition[] = [];
+        for (let k = runStart; k < end; k++) positions.push(makePos(k));
+        groups.push({ positions, length: runLen, direction });
+      }
+    };
+
+    for (let i = 1; i <= len; i++) {
+      const cell = i < len ? getCell(i) : null;
+      const cellIsBomb = i < len ? getBomb(i) : false;
 
       let continues = false;
-      if (isMatchable(cell) && isMatchable(grid[r][runStart])) {
-        if (cell === TileType.LineBomb) {
+      if (isMatchable(cell) && isMatchable(getCell(runStart))) {
+        if (cellIsBomb && lastIsBomb) {
+          // Rule 1: adjacent bombs always continue.
           continues = true;
-        } else if (runColor === null) {
-          runColor = cell;
-          continues = true;
-        } else if (cell === runColor) {
-          continues = true;
+        } else if (cellIsBomb) {
+          // Rule 2: LineBomb continues run only by its effective color.
+          const effectiveColor = cell !== TileType.LineBomb ? cell : null;
+          if (effectiveColor === null) {
+            // Colorless LineBomb acts as wildcard.
+            continues = true;
+          } else if (runColor === null) {
+            runColor = effectiveColor;
+            continues = true;
+          } else {
+            continues = effectiveColor === runColor;
+          }
+        } else {
+          // Rule 3: regular tile.
+          if (runColor === null) {
+            runColor = cell;
+            continues = true;
+          } else {
+            continues = cell === runColor;
+          }
         }
       }
 
       if (!continues) {
-        const runLen = c - runStart;
-        if (runLen >= MIN_MATCH && isMatchable(grid[r][runStart])) {
-          const positions: GridPosition[] = [];
-          for (let k = runStart; k < c; k++) {
-            positions.push({ row: r, col: k });
+        emitRun(i);
+        // Start a new run at cell i.
+        runStart = i;
+        runColor = null;
+        runHasNonBomb = false;
+        lastIsBomb = false;
+        if (i < len && isMatchable(cell)) {
+          lastIsBomb = cellIsBomb;
+          runHasNonBomb = !cellIsBomb;
+          if (!cellIsBomb) {
+            runColor = cell;
+          } else if (cell !== TileType.LineBomb) {
+            runColor = cell; // colored LineBomb
           }
-          groups.push({ positions, length: runLen, direction: "horizontal" });
         }
-        runStart = c;
-        runColor =
-          c < GRID_COLS && isMatchable(cell) && cell !== TileType.LineBomb
-            ? cell
-            : null;
+      } else {
+        lastIsBomb = cellIsBomb;
+        if (!cellIsBomb) runHasNonBomb = true;
       }
     }
   }
 
-  // Vertical runs
+  for (let r = 0; r < GRID_ROWS; r++) {
+    scanRun(
+      (c) => grid[r][c],
+      (c) => bombMask[r][c],
+      (c) => ({ row: r, col: c }),
+      GRID_COLS,
+      "horizontal",
+    );
+  }
+
   for (let c = 0; c < GRID_COLS; c++) {
-    let runStart = 0;
-    let runColor: TileType | null =
-      isMatchable(grid[0][c]) && grid[0][c] !== TileType.LineBomb
-        ? grid[0][c]
-        : null;
-
-    for (let r = 1; r <= GRID_ROWS; r++) {
-      const cell = r < GRID_ROWS ? grid[r][c] : null;
-
-      let continues = false;
-      if (isMatchable(cell) && isMatchable(grid[runStart][c])) {
-        if (cell === TileType.LineBomb) {
-          continues = true;
-        } else if (runColor === null) {
-          runColor = cell;
-          continues = true;
-        } else if (cell === runColor) {
-          continues = true;
-        }
-      }
-
-      if (!continues) {
-        const runLen = r - runStart;
-        if (runLen >= MIN_MATCH && isMatchable(grid[runStart][c])) {
-          const positions: GridPosition[] = [];
-          for (let k = runStart; k < r; k++) {
-            positions.push({ row: k, col: c });
-          }
-          groups.push({ positions, length: runLen, direction: "vertical" });
-        }
-        runStart = r;
-        runColor =
-          r < GRID_ROWS && isMatchable(cell) && cell !== TileType.LineBomb
-            ? cell
-            : null;
-      }
-    }
+    scanRun(
+      (r) => grid[r][c],
+      (r) => bombMask[r][c],
+      (r) => ({ row: r, col: c }),
+      GRID_ROWS,
+      "vertical",
+    );
   }
 
   return groups;
@@ -104,36 +157,28 @@ export function findMatches(grid: (TileType | null)[][]): MatchGroup[] {
 /**
  * Check whether any single adjacent swap on the grid would produce a match.
  */
-export function hasValidMoves(grid: (TileType | null)[][]): boolean {
+export function hasValidMoves(mg: MatchableGrid): boolean {
   for (let r = 0; r < GRID_ROWS; r++) {
     for (let c = 0; c < GRID_COLS; c++) {
-      // Color bomb can always be swapped with a neighbor
-      if (grid[r][c] === TileType.ColorBomb) {
-        if (c + 1 < GRID_COLS && grid[r][c + 1] !== null) return true;
-        if (r + 1 < GRID_ROWS && grid[r + 1][c] !== null) return true;
-        if (c - 1 >= 0 && grid[r][c - 1] !== null) return true;
-        if (r - 1 >= 0 && grid[r - 1][c] !== null) return true;
+      // ColorBomb can always be swapped with a non-null neighbor.
+      if (mg.grid[r][c] === TileType.ColorBomb) {
+        if (c + 1 < GRID_COLS && mg.grid[r][c + 1] !== null) return true;
+        if (r + 1 < GRID_ROWS && mg.grid[r + 1][c] !== null) return true;
+        if (c - 1 >= 0 && mg.grid[r][c - 1] !== null) return true;
+        if (r - 1 >= 0 && mg.grid[r - 1][c] !== null) return true;
         continue;
       }
-      // Try swap right
       if (c + 1 < GRID_COLS) {
-        if (grid[r][c + 1] === TileType.ColorBomb) continue; // handled above
-        swap(grid, r, c, r, c + 1);
-        if (findMatches(grid).length > 0) {
-          swap(grid, r, c, r, c + 1);
-          return true;
-        }
-        swap(grid, r, c, r, c + 1);
+        if (mg.grid[r][c + 1] === TileType.ColorBomb) continue;
+        swapMG(mg, r, c, r, c + 1);
+        if (findMatches(mg).length > 0) { swapMG(mg, r, c, r, c + 1); return true; }
+        swapMG(mg, r, c, r, c + 1);
       }
-      // Try swap down
       if (r + 1 < GRID_ROWS) {
-        if (grid[r + 1][c] === TileType.ColorBomb) continue; // handled above
-        swap(grid, r, c, r + 1, c);
-        if (findMatches(grid).length > 0) {
-          swap(grid, r, c, r + 1, c);
-          return true;
-        }
-        swap(grid, r, c, r + 1, c);
+        if (mg.grid[r + 1][c] === TileType.ColorBomb) continue;
+        swapMG(mg, r, c, r + 1, c);
+        if (findMatches(mg).length > 0) { swapMG(mg, r, c, r + 1, c); return true; }
+        swapMG(mg, r, c, r + 1, c);
       }
     }
   }
@@ -141,44 +186,42 @@ export function hasValidMoves(grid: (TileType | null)[][]): boolean {
 }
 
 /**
- * Find a valid move that produces a match, returning the two swap positions.
- * Prefers moves that produce longer matches (best hint).
+ * Find the valid move that produces the longest total match.
  */
 export function findValidMove(
-  grid: (TileType | null)[][],
+  mg: MatchableGrid,
 ): { a: GridPosition; b: GridPosition } | null {
   let best: { a: GridPosition; b: GridPosition } | null = null;
   let bestLen = 0;
 
   for (let r = 0; r < GRID_ROWS; r++) {
     for (let c = 0; c < GRID_COLS; c++) {
-      if (grid[r][c] === TileType.ColorBomb) continue;
+      if (mg.grid[r][c] === TileType.ColorBomb) continue;
 
-      // Try swap right
-      if (c + 1 < GRID_COLS && grid[r][c + 1] !== TileType.ColorBomb) {
-        swap(grid, r, c, r, c + 1);
-        const matches = findMatches(grid);
+      if (c + 1 < GRID_COLS && mg.grid[r][c + 1] !== TileType.ColorBomb) {
+        swapMG(mg, r, c, r, c + 1);
+        const matches = findMatches(mg);
         if (matches.length > 0) {
-          const totalLen = matches.reduce((sum, m) => sum + m.length, 0);
+          const totalLen = matches.reduce((s, m) => s + m.length, 0);
           if (totalLen > bestLen) {
             bestLen = totalLen;
             best = { a: { row: r, col: c }, b: { row: r, col: c + 1 } };
           }
         }
-        swap(grid, r, c, r, c + 1);
+        swapMG(mg, r, c, r, c + 1);
       }
-      // Try swap down
-      if (r + 1 < GRID_ROWS && grid[r + 1][c] !== TileType.ColorBomb) {
-        swap(grid, r, c, r + 1, c);
-        const matches = findMatches(grid);
+
+      if (r + 1 < GRID_ROWS && mg.grid[r + 1][c] !== TileType.ColorBomb) {
+        swapMG(mg, r, c, r + 1, c);
+        const matches = findMatches(mg);
         if (matches.length > 0) {
-          const totalLen = matches.reduce((sum, m) => sum + m.length, 0);
+          const totalLen = matches.reduce((s, m) => s + m.length, 0);
           if (totalLen > bestLen) {
             bestLen = totalLen;
             best = { a: { row: r, col: c }, b: { row: r + 1, col: c } };
           }
         }
-        swap(grid, r, c, r + 1, c);
+        swapMG(mg, r, c, r + 1, c);
       }
     }
   }
@@ -186,14 +229,16 @@ export function findValidMove(
   return best;
 }
 
-function swap(
-  grid: (TileType | null)[][],
-  r1: number,
-  c1: number,
-  r2: number,
-  c2: number,
+function swapMG(
+  mg: MatchableGrid,
+  r1: number, c1: number,
+  r2: number, c2: number,
 ): void {
-  const tmp = grid[r1][c1];
-  grid[r1][c1] = grid[r2][c2];
-  grid[r2][c2] = tmp;
+  const tmpGrid = mg.grid[r1][c1];
+  mg.grid[r1][c1] = mg.grid[r2][c2];
+  mg.grid[r2][c2] = tmpGrid;
+
+  const tmpBomb = mg.bombMask[r1][c1];
+  mg.bombMask[r1][c1] = mg.bombMask[r2][c2];
+  mg.bombMask[r2][c2] = tmpBomb;
 }

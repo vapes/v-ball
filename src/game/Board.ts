@@ -27,6 +27,7 @@ import { Animator } from "./Animator";
 import { InputHandler } from "./InputHandler";
 import { ScoreManager } from "./ScoreManager";
 import { findMatches, hasValidMoves, findValidMove } from "../utils/matching";
+import type { MatchableGrid } from "../utils/matching";
 import { generateGrid, randomTileType } from "../utils/random";
 
 export class Board {
@@ -45,6 +46,11 @@ export class Board {
   /** Hint system state */
   private hintTimer: ReturnType<typeof setTimeout> | null = null;
   private hintTiles: Tile[] = [];
+
+  /** Last recorded move for replay */
+  private lastMove: SwapRequest | null = null;
+  /** Board state snapshot taken just before the last recorded move */
+  private preMoveSnapshot: ({ type: TileType; baseType?: TileType; baseColor?: number; bonusOrientation?: BonusOrientation } | null)[][] = [];
 
   constructor(animator: Animator) {
     this.animator = animator;
@@ -87,11 +93,11 @@ export class Board {
     const tileA = this.tiles[move.a.row][move.a.col];
     const tileB = this.tiles[move.b.row][move.b.col];
     if (tileA) {
-      tileA.startBlink();
+      tileA.startBlink(this.animator);
       this.hintTiles.push(tileA);
     }
     if (tileB) {
-      tileB.startBlink();
+      tileB.startBlink(this.animator);
       this.hintTiles.push(tileB);
     }
   }
@@ -128,20 +134,103 @@ export class Board {
     }
   }
 
-  /**
-   * Build a grid for matching logic.
-   * All line bombs are kept as TileType.LineBomb so they match each other
-   * regardless of their original base color.
-   */
-  private buildMatchableGrid(): (TileType | null)[][] {
-    const matchGrid: (TileType | null)[][] = [];
+  /** Replay the last move at 0.25x speed (dev feature). */
+  async replay(): Promise<void> {
+    if (!this.lastMove || this.preMoveSnapshot.length === 0) {
+      console.log("No move to replay");
+      return;
+    }
+
+    // Clear all tiles
     for (let r = 0; r < GRID_ROWS; r++) {
-      matchGrid[r] = [];
       for (let c = 0; c < GRID_COLS; c++) {
-        matchGrid[r][c] = this.grid[r][c];
+        const tile = this.tiles[r][c];
+        if (tile) {
+          this.tileContainer.removeChild(tile.container);
+        }
       }
     }
-    return matchGrid;
+
+    // Reset score and restore board to the state just before the last move
+    this.score.reset();
+    this.grid = this.preMoveSnapshot.map(row => row.map(s => s ? s.type : null));
+    this.tiles = [];
+
+    for (let r = 0; r < GRID_ROWS; r++) {
+      this.tiles[r] = [];
+      for (let c = 0; c < GRID_COLS; c++) {
+        const s = this.preMoveSnapshot[r][c];
+        if (!s) {
+          this.tiles[r][c] = null;
+          continue;
+        }
+        const tile = new Tile(s.type, r, c);
+        if (s.type === TileType.LineBomb) {
+          tile.bonusOrientation = s.bonusOrientation;
+          tile.baseColor = s.baseColor;
+          tile.baseType = s.baseType;
+          tile.redraw();
+        }
+        this.tiles[r][c] = tile;
+        this.tileContainer.addChild(tile.container);
+      }
+    }
+
+    // Set speed to 0.25x and disable input (auto-play)
+    this.animator.setSpeed(0.25);
+    this.busy = false;
+    this.input.setEnabled(false);
+    this.clearHint();
+
+    // Replay the last move
+    await this.onSwapRequest(this.lastMove);
+
+    // Re-enable input after replay
+    this.input.setEnabled(true);
+    this.animator.setSpeed(1);
+    this.resetHintTimer();
+  }
+
+  /** Capture the current board state for replay. */
+  private snapshotBoard(): ({ type: TileType; baseType?: TileType; baseColor?: number; bonusOrientation?: BonusOrientation } | null)[][] {
+    return this.grid.map((row, r) =>
+      row.map((type, c) => {
+        if (type === null) return null;
+        const tile = this.tiles[r][c];
+        return {
+          type,
+          baseType: tile?.baseType,
+          baseColor: tile?.baseColor,
+          bonusOrientation: tile?.bonusOrientation,
+        };
+      })
+    );
+  }
+
+  /**
+   * Build a MatchableGrid for match-detection logic.
+   *
+   * - grid:     LineBombs replaced by their baseType (effective color for matching).
+   * - bombMask: marks every LineBomb cell so the matcher can apply bomb-bomb rules.
+   */
+  private buildMatchableGrid(): MatchableGrid {
+    const grid: (TileType | null)[][] = [];
+    const bombMask: boolean[][] = [];
+    for (let r = 0; r < GRID_ROWS; r++) {
+      grid[r] = [];
+      bombMask[r] = [];
+      for (let c = 0; c < GRID_COLS; c++) {
+        const type = this.grid[r][c];
+        if (type === TileType.LineBomb) {
+          grid[r][c] = this.tiles[r][c]?.baseType ?? TileType.LineBomb;
+          bombMask[r][c] = true;
+        } else {
+          grid[r][c] = type;
+          bombMask[r][c] = false;
+        }
+      }
+    }
+    return { grid, bombMask };
   }
 
   // ─── Main swap handler ─────────────────────────────────────────────
@@ -166,6 +255,10 @@ export class Board {
     const bIsColorBomb = tileB.tileType === TileType.ColorBomb;
 
     if (aIsColorBomb || bIsColorBomb) {
+      // Snapshot board state before applying the swap
+      this.preMoveSnapshot = this.snapshotBoard();
+      this.lastMove = { a, b };
+
       // Animate the swap visually
       await Promise.all([
         tileA.animateSwap(b.row, b.col, this.animator, SWAP_DURATION),
@@ -220,6 +313,9 @@ export class Board {
     }
 
     // ── Normal swap ──────────────────────────────────────────────────
+    // Snapshot board state before the swap so replay can restore it
+    const preSwapSnapshot = this.snapshotBoard();
+
     await Promise.all([
       tileA.animateSwap(b.row, b.col, this.animator, SWAP_DURATION),
       tileB.animateSwap(a.row, a.col, this.animator, SWAP_DURATION),
@@ -240,6 +336,9 @@ export class Board {
       this.tiles[a.row][a.col] = tileA;
       this.tiles[b.row][b.col] = tileB;
     } else {
+      // Record last successful move for replay
+      this.preMoveSnapshot = preSwapSnapshot;
+      this.lastMove = { a, b };
       this.score.resetCombo();
       // Pass both swap positions so bonus tiles spawn at the player's swap position
       this.lastSwapPos = b; // "b" is where the player dragged to
@@ -291,42 +390,51 @@ export class Board {
     // Animate destruction (skip bonus positions and line bombs — bombs detonate separately)
     const bonusPosKeys = new Set(bonuses.map((b) => `${b.row},${b.col}`));
 
-    const destroyPromises: Promise<void>[] = [];
+    // Separate triggered bombs from regular match positions
     const triggeredBombs: GridPosition[] = [];
+    const regularPositions: GridPosition[] = [];
 
     for (const pos of allPositions) {
       const tile = this.tiles[pos.row][pos.col];
       if (!tile) continue;
-
-      // Line bombs in a match are detonated separately
       if (tile.tileType === TileType.LineBomb) {
         triggeredBombs.push({ row: pos.row, col: pos.col });
-        continue;
+      } else if (!bonusPosKeys.has(`${pos.row},${pos.col}`)) {
+        regularPositions.push(pos);
       }
-
-      // Skip destruction animation if a bonus tile will replace this cell
-      if (bonusPosKeys.has(`${pos.row},${pos.col}`)) continue;
-
-      destroyPromises.push(tile.animateDestroy(this.animator, DESTROY_DURATION));
     }
 
-    // Run bomb detonations in parallel with regular tile destruction
-    for (const bp of triggeredBombs) {
-      if (!this.tiles[bp.row][bp.col]) continue;
-      destroyPromises.push(this.detonateLineBomb(bp));
-    }
+    if (triggeredBombs.length > 0) {
+      // Remove non-bomb match tiles immediately; bomb explosion is the visual event
+      for (const pos of regularPositions) {
+        const tile = this.tiles[pos.row][pos.col];
+        if (!tile) continue;
+        this.tileContainer.removeChild(tile.container);
+        this.tiles[pos.row][pos.col] = null;
+        this.grid[pos.row][pos.col] = null;
+      }
+      // Detonate all triggered bombs (each plays explosion then clears its line)
+      await Promise.all(
+        triggeredBombs
+          .filter((bp) => !!this.tiles[bp.row][bp.col])
+          .map((bp) => this.detonateLineBomb(bp)),
+      );
+    } else {
+      // No bombs: animate destruction for all regular match tiles
+      const destroyPromises = regularPositions.map((pos) => {
+        const tile = this.tiles[pos.row][pos.col];
+        return tile ? tile.animateDestroy(this.animator, DESTROY_DURATION) : Promise.resolve();
+      });
+      await Promise.all(destroyPromises);
 
-    await Promise.all(destroyPromises);
-
-    // Remove destroyed tiles from both arrays (except bonus positions)
-    for (const pos of allPositions) {
-      if (bonusPosKeys.has(`${pos.row},${pos.col}`)) continue;
-      const tile = this.tiles[pos.row][pos.col];
-      if (!tile) continue; // already removed by bomb detonation
-      if (tile.tileType === TileType.LineBomb) continue; // already handled by detonation
-      this.tileContainer.removeChild(tile.container);
-      this.tiles[pos.row][pos.col] = null;
-      this.grid[pos.row][pos.col] = null;
+      // Remove destroyed tiles from both arrays
+      for (const pos of regularPositions) {
+        const tile = this.tiles[pos.row][pos.col];
+        if (!tile) continue;
+        this.tileContainer.removeChild(tile.container);
+        this.tiles[pos.row][pos.col] = null;
+        this.grid[pos.row][pos.col] = null;
+      }
     }
 
     // Spawn bonus tiles in-place
@@ -444,8 +552,7 @@ export class Board {
 
     const orientation = tile.bonusOrientation ?? "horizontal";
 
-    // Destroy the bomb tile itself
-    await tile.animateDestroy(this.animator, DESTROY_DURATION);
+    // Remove the bomb tile immediately — explosion is the visual event
     this.tileContainer.removeChild(tile.container);
     this.tiles[pos.row][pos.col] = null;
     this.grid[pos.row][pos.col] = null;
@@ -475,18 +582,19 @@ export class Board {
       }
     }
 
-    // Animate destruction of all targets, concurrently with explosion beam
+    // Show explosion animation first
     const explosionColor = tile.baseColor ?? 0xffffff;
-    const promises: Promise<void>[] = [
-      this.showLineBombExplosion(pos, orientation, explosionColor),
-    ];
+    await this.showLineBombExplosion(pos, orientation, explosionColor);
+
+    // Then destroy targets
+    const destroyPromises: Promise<void>[] = [];
     for (const t of targets) {
       const tt = this.tiles[t.row][t.col];
       if (tt && tt.tileType !== TileType.LineBomb && tt.tileType !== TileType.ColorBomb) {
-        promises.push(tt.animateDestroy(this.animator, DESTROY_DURATION));
+        destroyPromises.push(tt.animateDestroy(this.animator, DESTROY_DURATION));
       }
     }
-    await Promise.all(promises);
+    await Promise.all(destroyPromises);
 
     // Remove non-bomb targets
     for (const t of targets) {

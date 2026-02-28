@@ -32,6 +32,12 @@ async function main(): Promise<void> {
   const board = new Board(animator);
   app.stage.addChild(board.container);
 
+  // Dev mode: expose replay function
+  // @ts-ignore
+  window.replayAt05x = (): void => {
+    board.replay().catch(console.error);
+  };
+
   const fitBoard = (): void => {
     const availW = app.screen.width - MARGIN * 2;
     const availH = app.screen.height - SCORE_BAR_HEIGHT - MARGIN;

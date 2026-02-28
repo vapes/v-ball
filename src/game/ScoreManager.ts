@@ -32,6 +32,13 @@ export class ScoreManager {
     this._combo = 0;
   }
 
+  /** Reset score and combo for replay (best score is preserved). */
+  reset(): void {
+    this._score = 0;
+    this._combo = 0;
+    this.render();
+  }
+
   /** Award points for a set of matched tiles. Increments combo. */
   addMatch(tileCount: number): void {
     const multiplier = Math.pow(COMBO_MULTIPLIER, this._combo);
