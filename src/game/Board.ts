@@ -479,8 +479,11 @@ export class Board {
       }
     }
 
-    // Animate destruction of all targets
-    const promises: Promise<void>[] = [];
+    // Animate destruction of all targets, concurrently with explosion beam
+    const explosionColor = tile.baseColor ?? 0xffffff;
+    const promises: Promise<void>[] = [
+      this.showLineBombExplosion(pos, orientation, explosionColor),
+    ];
     for (const t of targets) {
       const tt = this.tiles[t.row][t.col];
       if (tt && tt.tileType !== TileType.LineBomb && tt.tileType !== TileType.ColorBomb) {
@@ -513,6 +516,57 @@ export class Board {
         await this.destroySingleTile(bp);
       }
     }
+  }
+
+  /**
+   * Show a glowing explosion beam along the line bomb's cleared row or column.
+   * Runs concurrently with tile destruction for a punch-through feel.
+   */
+  private async showLineBombExplosion(
+    pos: GridPosition,
+    orientation: BonusOrientation,
+    color: number,
+  ): Promise<void> {
+    const gfx = new Graphics();
+    const bx = Tile.pixelX(pos.col);
+    const by = Tile.pixelY(pos.row);
+
+    if (orientation === "horizontal") {
+      const x0 = Tile.pixelX(0);
+      const x1 = Tile.pixelX(GRID_COLS - 1);
+      // Outer glow
+      gfx.moveTo(x0, by).lineTo(x1, by).stroke({ width: 28, color, alpha: 0.22 });
+      // Mid glow
+      gfx.moveTo(x0, by).lineTo(x1, by).stroke({ width: 14, color, alpha: 0.5 });
+      // Core beam
+      gfx.moveTo(x0, by).lineTo(x1, by).stroke({ width: 5, color: 0xffffff, alpha: 0.95 });
+    } else {
+      const y0 = Tile.pixelY(0);
+      const y1 = Tile.pixelY(GRID_ROWS - 1);
+      gfx.moveTo(bx, y0).lineTo(bx, y1).stroke({ width: 28, color, alpha: 0.22 });
+      gfx.moveTo(bx, y0).lineTo(bx, y1).stroke({ width: 14, color, alpha: 0.5 });
+      gfx.moveTo(bx, y0).lineTo(bx, y1).stroke({ width: 5, color: 0xffffff, alpha: 0.95 });
+    }
+
+    // Burst circle at the bomb center
+    gfx.circle(bx, by, TILE_SIZE * 0.65).fill({ color: 0xffffff, alpha: 0.85 });
+    gfx.circle(bx, by, TILE_SIZE * 0.42).fill({ color, alpha: 0.9 });
+
+    gfx.alpha = 0;
+    this.tileContainer.addChild(gfx);
+
+    await this.animator.animate(
+      gfx as unknown as Record<string, number>,
+      { alpha: 1 },
+      LASER_DURATION,
+    );
+    await this.animator.animate(
+      gfx as unknown as Record<string, number>,
+      { alpha: 0 },
+      LASER_DURATION * 1.5,
+    );
+
+    this.tileContainer.removeChild(gfx);
   }
 
   /** Create laser beam graphics from a source position to all targets. */
