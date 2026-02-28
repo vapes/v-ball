@@ -60,11 +60,68 @@ Any operation that moves or removes a tile must update **both** arrays.
 
 `main.ts` computes `scale = min(availW / BOARD_WIDTH, availH / BOARD_HEIGHT, 1)` on every resize and applies it to `board.container.scale`. The board's internal pixel dimensions (580×580 at 1×) never change — only the container scale changes. Portrait lock is attempted via `screen.orientation.lock("portrait")`; a CSS overlay covers landscape on small screens.
 
+### Tile types & bonus system
+
+```typescript
+enum TileType {
+  Red=0, Blue=1, Green=2, Yellow=3, Purple=4, Orange=5, Pink=6,
+  LineBomb=7,   // 4+ match → clears row or column (orientation from match direction)
+  ColorBomb=8   // 5+ match → destroys all tiles of matched color
+}
+```
+
+**LineBomb behavior:**
+- Created when 4+ tiles match in a line
+- Has `baseType` (original color) and `bonusOrientation` (horizontal/vertical)
+- Matches with regular tiles of its `baseType` color
+- Matches with other LineBombs **regardless of color** (bomb-bomb rule)
+- Detonation plays explosion animation, then clears entire row/column
+
+**ColorBomb behavior:**
+- Created when 5+ tiles match
+- Only activates on direct swap (not by matching in a cascade)
+- Destroys all tiles of the swapped color globally
+
+### Match detection subtlety
+
+`findMatches()` uses `MatchableGrid` which has:
+- `grid` — LineBombs replaced by their `baseType` (for color-matching logic)
+- `bombMask` — tracks which cells have bombs (for bomb-bomb matching rules)
+
+This lets LineBombs participate in run matching by color while also being able to chain with other bombs.
+
+### Animation & async patterns
+
+- All animations return `Promise<void>` (tweens use PixiJS Ticker)
+- Chain animations with `await` in `onSwapRequest` state machine
+- Multiple animations run in parallel via `Promise.all()`
+- Input is blocked via `busy = true` during any animation phase
+- Tile position/scale changes go through `Animator.animate()` for smooth tweening
+
 ### PixiJS v8 API notes
 
 - Graphics uses method chaining: `.roundRect(...).fill({color})` / `.stroke({width, color})`
 - `Container.position` is a `Point`, not a plain object — cast to `Record<string, number>` when passing to `Animator.animate()`
 - `eventMode = "static"` must be set on containers that need pointer events
+
+### Keeping arrays in sync
+
+**Critical pattern** — any tile movement or removal must update both `grid` and `tiles`:
+
+```typescript
+// Remove a tile
+grid[r][c] = null;
+tiles[r][c] = null;
+tileContainer.removeChild(tile.container);
+
+// Move a tile (used in cascade)
+tiles[newR][c] = tile;
+grid[newR][c] = tile.tileType;
+tiles[oldR][c] = null;
+grid[oldR][c] = null;
+```
+
+The `grid` is the source of truth for matching logic; `tiles` is the visual representation. If they diverge, matches become incorrect.
 
 ### Deployment
 
