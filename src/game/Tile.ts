@@ -25,6 +25,12 @@ export class Tile {
    */
   baseColor?: number;
 
+  /**
+   * For LineBomb tiles: the TileType of the color that created this bomb.
+   * Used so the line bomb can participate in matches of that color.
+   */
+  baseType?: TileType;
+
   private gfx: Graphics;
 
   constructor(type: TileType, row: number, col: number) {

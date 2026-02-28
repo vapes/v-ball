@@ -87,6 +87,26 @@ export class Board {
     }
   }
 
+  /**
+   * Build a grid where line bomb positions use their base color for matching.
+   * This lets findMatches/hasValidMoves treat line bombs as their original color.
+   */
+  private buildMatchableGrid(): (TileType | null)[][] {
+    const matchGrid: (TileType | null)[][] = [];
+    for (let r = 0; r < GRID_ROWS; r++) {
+      matchGrid[r] = [];
+      for (let c = 0; c < GRID_COLS; c++) {
+        const tile = this.tiles[r][c];
+        if (tile?.tileType === TileType.LineBomb && tile.baseType !== undefined) {
+          matchGrid[r][c] = tile.baseType;
+        } else {
+          matchGrid[r][c] = this.grid[r][c];
+        }
+      }
+    }
+    return matchGrid;
+  }
+
   // ─── Main swap handler ─────────────────────────────────────────────
 
   private async onSwapRequest(req: SwapRequest): Promise<void> {
@@ -145,12 +165,12 @@ export class Board {
       await this.fillEmpty();
 
       // Chain matches after color bomb
-      const newMatches = findMatches(this.grid);
+      const newMatches = findMatches(this.buildMatchableGrid());
       if (newMatches.length > 0) {
         await this.processMatches(newMatches, null);
       }
 
-      if (!hasValidMoves(this.grid)) {
+      if (!hasValidMoves(this.buildMatchableGrid())) {
         this.showGameOver();
         return;
       }
@@ -170,7 +190,7 @@ export class Board {
     this.tiles[a.row][a.col] = tileB;
     this.tiles[b.row][b.col] = tileA;
 
-    const matches = findMatches(this.grid);
+    const matches = findMatches(this.buildMatchableGrid());
     if (matches.length === 0) {
       // Invalid move — swap back
       await Promise.all([
@@ -188,7 +208,7 @@ export class Board {
       this.lastSwapPos = null;
     }
 
-    if (!hasValidMoves(this.grid)) {
+    if (!hasValidMoves(this.buildMatchableGrid())) {
       this.showGameOver();
       return;
     }
@@ -228,7 +248,7 @@ export class Board {
     // Award score
     this.score.addMatch(allPositions.length);
 
-    // Animate destruction (but skip positions where a bonus will spawn — collect those bombs)
+    // Animate destruction (skip bonus positions and line bombs — bombs detonate separately)
     const bonusPosKeys = new Set(bonuses.map((b) => `${b.row},${b.col}`));
 
     const destroyPromises: Promise<void>[] = [];
@@ -238,9 +258,10 @@ export class Board {
       const tile = this.tiles[pos.row][pos.col];
       if (!tile) continue;
 
-      // If this tile is a line bomb being destroyed by a match, queue it for detonation
+      // Line bombs in a match are detonated separately — skip destruction
       if (tile.tileType === TileType.LineBomb) {
         triggeredBombs.push({ row: pos.row, col: pos.col });
+        continue;
       }
 
       // Skip destruction animation if a bonus tile will replace this cell
@@ -250,15 +271,22 @@ export class Board {
     }
     await Promise.all(destroyPromises);
 
-    // Remove destroyed tiles from both arrays (except bonus spawn positions)
+    // Remove destroyed tiles from both arrays (except bonus positions and line bombs)
     for (const pos of allPositions) {
       if (bonusPosKeys.has(`${pos.row},${pos.col}`)) continue;
       const tile = this.tiles[pos.row][pos.col];
+      if (tile?.tileType === TileType.LineBomb) continue; // kept for detonation
       if (tile) {
         this.tileContainer.removeChild(tile.container);
       }
       this.tiles[pos.row][pos.col] = null;
       this.grid[pos.row][pos.col] = null;
+    }
+
+    // Detonate line bombs that were caught in the match (before spawning bonuses)
+    for (const bp of triggeredBombs) {
+      if (!this.tiles[bp.row][bp.col]) continue; // already detonated via chain
+      await this.detonateLineBomb(bp);
     }
 
     // Spawn bonus tiles in-place
@@ -271,6 +299,7 @@ export class Board {
       if (bonus.type === TileType.LineBomb) {
         tile.bonusOrientation = bonus.orientation;
         tile.baseColor = bonus.baseColor;
+        tile.baseType = bonus.baseType;
         tile.redraw();
       }
       this.tiles[bonus.row][bonus.col] = tile;
@@ -279,27 +308,12 @@ export class Board {
       await tile.animateSpawn(this.animator, SPAWN_DURATION);
     }
 
-    // Detonate any line bombs that were caught in the match
-    for (const bp of triggeredBombs) {
-      // The bomb tile may have already been removed if it was at a bonus position
-      if (this.tiles[bp.row][bp.col]?.tileType === TileType.LineBomb) {
-        // It wasn't replaced by a new bonus — detonate it
-      } else if (this.grid[bp.row][bp.col] === null) {
-        // Already gone, find the orientation from the tile that was there
-        // We can't detonate a tile that no longer exists, skip
-        continue;
-      } else {
-        continue;
-      }
-      await this.detonateLineBomb(bp);
-    }
-
     // Cascade and fill
     await this.cascade();
     await this.fillEmpty();
 
     // Chain matches (no swap positions for cascaded matches)
-    const newMatches = findMatches(this.grid);
+    const newMatches = findMatches(this.buildMatchableGrid());
     if (newMatches.length > 0) {
       await this.processMatches(newMatches, null);
     }
@@ -310,8 +324,8 @@ export class Board {
   private determineBonuses(
     matches: MatchGroup[],
     swapPositions: { a: GridPosition; b: GridPosition } | null,
-  ): { row: number; col: number; type: TileType; orientation?: BonusOrientation; baseColor?: number }[] {
-    const bonuses: { row: number; col: number; type: TileType; orientation?: BonusOrientation; baseColor?: number }[] = [];
+  ): { row: number; col: number; type: TileType; orientation?: BonusOrientation; baseColor?: number; baseType?: TileType }[] {
+    const bonuses: { row: number; col: number; type: TileType; orientation?: BonusOrientation; baseColor?: number; baseType?: TileType }[] = [];
     const usedPositions = new Set<string>();
 
     for (const match of matches) {
@@ -321,9 +335,13 @@ export class Board {
       if (!spawnPos) continue;
       usedPositions.add(`${spawnPos.row},${spawnPos.col}`);
 
-      // Determine the base color from the match
+      // Determine the base color from the match (line bombs use their baseType)
       const samplePos = match.positions[0];
-      const baseColor = TILE_COLORS[this.grid[samplePos.row][samplePos.col] as number] ?? 0x888888;
+      const sampleTile = this.tiles[samplePos.row][samplePos.col];
+      const sampleType: TileType = (sampleTile?.tileType === TileType.LineBomb && sampleTile.baseType !== undefined)
+        ? sampleTile.baseType
+        : this.grid[samplePos.row][samplePos.col] as TileType;
+      const baseColor = TILE_COLORS[sampleType] ?? 0x888888;
 
       if (match.length >= COLOR_BOMB_MATCH) {
         bonuses.push({ row: spawnPos.row, col: spawnPos.col, type: TileType.ColorBomb });
@@ -335,6 +353,7 @@ export class Board {
           type: TileType.LineBomb,
           orientation: match.direction,
           baseColor,
+          baseType: sampleType,
         });
       }
     }
